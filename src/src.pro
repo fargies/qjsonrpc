@@ -32,7 +32,8 @@ INSTALL_HEADERS += \
     qjsonrpctcpserver.h \
     qjsonrpc_export.h \
     qjsonrpcservicereply.h \
-    qjsonrpchttpclient.h
+    qjsonrpchttpclient.h \
+    qjsonrpchttpserver.h
 
 HEADERS += \
     $${INSTALL_HEADERS} \

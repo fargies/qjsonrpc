@@ -4,4 +4,5 @@ SUBDIRS += qjsonrpcmessage \
            qjsonrpcsocket \
            qjsonrpcserver \
            qjsonrpcservice \
-           qjsonrpchttpclient
+           qjsonrpchttpclient \
+           qjsonrpchttpserver
