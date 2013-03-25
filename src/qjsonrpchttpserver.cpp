@@ -59,30 +59,45 @@ qint64 QJsonRpcHttpRequest::writeData(const char *data, qint64 maxSize)
     QJsonDocument document = QJsonDocument::fromJson(m_responseBuffer);
     if (document.isObject()) {
         // determine the HTTP code to respond with
+        int statusCode = 200;
         QJsonRpcMessage message(document.object());
         switch (message.type()) {
-        case QJsonRpcMessage::Response:
-            break;
+        case QJsonRpcMessage::Error:
+            switch (message.errorCode()) {
+            case QJsonRpc::InvalidRequest:
+                statusCode = 400;
+                break;
 
-        case QJsonRpcMessage::Notification:
+            case QJsonRpc::MethodNotFound:
+                statusCode = 404;
+                break;
+
+            default:
+                statusCode = 500;
+                break;
+            }
             break;
 
         case QJsonRpcMessage::Invalid:
+            statusCode = 400;
             break;
 
-        case QJsonRpcMessage::Error:
-            break;
-
+        case QJsonRpcMessage::Notification:
+        case QJsonRpcMessage::Response:
         case QJsonRpcMessage::Request:
-            // unhandled
+            statusCode = 200;
             break;
         }
 
         QTextStream os(m_requestSocket);
         os.setAutoDetectUnicode(true);
-        os << "HTTP/1.1 200 OK\r\n"
-            "Content-Type: application/json-rpc\r\n"
-            "\r\n";
+
+        // header
+        os << "HTTP/1.1 " << QByteArray::number(statusCode) << " OK\r\n";
+        os << "Content-Type: application/json-rpc\r\n"
+           << "\r\n";
+
+        // body
         os << m_responseBuffer;
         m_requestSocket->close();
 
