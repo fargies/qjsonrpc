@@ -20,6 +20,12 @@ private Q_SLOTS:
     void cleanup();
 
     void quickTest();
+    void sslTest();
+
+private:
+    QSslConfiguration serverSslConfiguration;
+    QSslConfiguration clientSslConfiguration;
+
 };
 
 class TestService : public QJsonRpcService
@@ -98,6 +104,12 @@ private:
 void TestQJsonRpcHttpServer::initTestCase()
 {
     qRegisterMetaType<QJsonRpcMessage>("QJsonRpcMessage");
+
+    // setup ssl configuration for tests
+    QList<QSslCertificate> caCerts =
+        QSslCertificate::fromPath(QLatin1String(":/certs/qt-test-server-cacert.pem"));
+    serverSslConfiguration.setCaCertificates(caCerts);
+    serverSslConfiguration.setProtocol(QSsl::AnyProtocol);
 }
 
 void TestQJsonRpcHttpServer::cleanupTestCase()
@@ -114,9 +126,8 @@ void TestQJsonRpcHttpServer::cleanup()
 
 void TestQJsonRpcHttpServer::quickTest()
 {
-    TestService service;
     QJsonRpcHttpServer server;
-    server.addService(&service);
+    server.addService(new TestService);
     server.listen(QHostAddress::LocalHost, 8118);
 
     QJsonRpcMessage message = QJsonRpcMessage::createRequest("service.noParam");
@@ -162,6 +173,38 @@ void TestQJsonRpcHttpServer::quickTest()
     QVERIFY(response.errorCode() == QJsonRpc::NoError);
     QCOMPARE(request.id(), response.id());
 */
+}
+
+void TestQJsonRpcHttpServer::sslTest()
+{
+    QJsonRpcHttpServer server;
+    server.setSslConfiguration(serverSslConfiguration);
+    server.addService(new TestService);
+    server.listen(QHostAddress::LocalHost, 8118);
+
+    QJsonRpcMessage message = QJsonRpcMessage::createRequest("service.noParam");
+    QJsonDocument document(message.toObject());
+
+    QUrl requestUrl;
+    requestUrl.setScheme("http");
+    requestUrl.setHost("127.0.0.1");
+    requestUrl.setPort(8118);
+    QNetworkRequest request(requestUrl);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json-rpc");
+    request.setRawHeader("Accept", "application/json-rpc");
+    request.setSslConfiguration(serverSslConfiguration);
+
+    QNetworkAccessManager manager;
+    QNetworkReply *reply = manager.post(request, document.toJson());
+
+    QEventLoop loop;
+    connect(reply, SIGNAL(finished()), &loop, SLOT(quit()));
+    QTimer::singleShot(5000, &loop, SLOT(quit()));
+    loop.exec();
+
+    qDebug() << reply->readAll();
+    qDebug() << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
+    reply->deleteLater();
 }
 
 QTEST_MAIN(TestQJsonRpcHttpServer)

@@ -5,12 +5,12 @@
 #include "http_parser.h"
 #include "qjsonrpcservice.h"
 
-class QTcpSocket;
+class QAbstractSocket;
 class QJsonRpcHttpRequest : public QIODevice
 {
     Q_OBJECT
 public:
-    explicit QJsonRpcHttpRequest(int socketDescriptor, QObject *parent = 0);
+    explicit QJsonRpcHttpRequest(QAbstractSocket *socket, QObject *parent = 0);
     ~QJsonRpcHttpRequest();
 
     bool isSequential() const;
@@ -34,7 +34,7 @@ private:
 private:
     Q_DISABLE_COPY(QJsonRpcHttpRequest)
 
-    QTcpSocket *m_requestSocket;
+    QAbstractSocket *m_requestSocket;
 
     // request
     QByteArray m_requestPayload;

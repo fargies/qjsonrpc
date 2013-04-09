@@ -7,9 +7,9 @@
 #include "qjsonrpchttpserver_p.h"
 #include "qjsonrpchttpserver.h"
 
-QJsonRpcHttpRequest::QJsonRpcHttpRequest(int socketDescriptor, QObject *parent)
+QJsonRpcHttpRequest::QJsonRpcHttpRequest(QAbstractSocket *socket, QObject *parent)
     : QIODevice(parent),
-      m_requestSocket(0),
+      m_requestSocket(socket),
       m_requestParser(0)
 {
     // initialize request parser
@@ -24,10 +24,8 @@ QJsonRpcHttpRequest::QJsonRpcHttpRequest(int socketDescriptor, QObject *parent)
     m_requestParserSettings.on_message_complete = onMessageComplete;
     m_requestParser->data = this;
 
-    m_requestSocket = new QTcpSocket(this);
-    m_requestSocket->setSocketDescriptor(socketDescriptor);
+    m_requestSocket->setParent(this);
     connect(m_requestSocket, SIGNAL(readyRead()), this, SLOT(readIncomingData()));
-
     open(QIODevice::ReadWrite);
 }
 
@@ -119,7 +117,7 @@ int QJsonRpcHttpRequest::onBody(http_parser *parser, const char *at, size_t leng
 {
     QJsonRpcHttpRequest *request = (QJsonRpcHttpRequest *)parser->data;
     request->m_requestPayload = QByteArray(at, length);
-//    qDebug() << "body";
+    qDebug() << "body";
     return 0;
 }
 
@@ -127,14 +125,15 @@ int QJsonRpcHttpRequest::onMessageComplete(http_parser *parser)
 {
     QJsonRpcHttpRequest *request = (QJsonRpcHttpRequest *)parser->data;
     Q_EMIT request->readyRead();
-//    qDebug() << "message complete";
+    qDebug() << "message complete";
+
     return 0;
 }
 
 int QJsonRpcHttpRequest::onHeadersComplete(http_parser *parser)
 {
     QJsonRpcHttpRequest *request = (QJsonRpcHttpRequest *)parser->data;
-//    qDebug() << "headers complete: " << request->m_requestHeaders;
+    qDebug() << "headers complete: " << request->m_requestHeaders;
 
     if (parser->method != HTTP_GET && parser->method != HTTP_POST) {
         // close the socket, cleanup, delete, etc..
@@ -189,7 +188,8 @@ int QJsonRpcHttpRequest::onMessageBegin(http_parser *parser)
 {
     QJsonRpcHttpRequest *request = (QJsonRpcHttpRequest *)parser->data;
     request->m_requestHeaders.clear();
-//    qDebug() << "message begin";
+    qDebug() << "message begin";
+
     return 0;
 }
 
@@ -198,8 +198,9 @@ int QJsonRpcHttpRequest::onUrl(http_parser *parser, const char *at, size_t lengt
     Q_UNUSED(parser)
     Q_UNUSED(at)
     Q_UNUSED(length)
-//    QString url = QString::fromAscii(at, length);
-//    qDebug() << "requested url: " << url;
+    QString url = QString::fromAscii(at, length);
+    qDebug() << "requested url: " << url;
+
     return 0;
 }
 
@@ -212,12 +213,41 @@ QJsonRpcHttpServer::~QJsonRpcHttpServer()
 {
 }
 
+QSslConfiguration QJsonRpcHttpServer::sslConfiguration() const
+{
+    return m_sslConfiguration;
+}
+
+void QJsonRpcHttpServer::setSslConfiguration(const QSslConfiguration &config)
+{
+    m_sslConfiguration = config;
+}
+
 void QJsonRpcHttpServer::incomingConnection(int socketDescriptor)
 {
-    QJsonRpcHttpRequest *request = new QJsonRpcHttpRequest(socketDescriptor, this);
-    QJsonRpcSocket *socket = new QJsonRpcSocket(request, this);
-    m_requests.insert(socket, request);
-    connect(socket, SIGNAL(messageReceived(QJsonRpcMessage)), this, SLOT(processIncomingMessage(QJsonRpcMessage)));
+    QJsonRpcHttpRequest *request;
+    if (m_sslConfiguration.isNull()) {
+        QTcpSocket *socket = new QTcpSocket;
+        socket->setSocketDescriptor(socketDescriptor);
+
+        request = new QJsonRpcHttpRequest(socket, this);
+    } else {
+        QSslSocket *socket = new QSslSocket;
+        socket->setSocketDescriptor(socketDescriptor);
+        socket->setSslConfiguration(m_sslConfiguration);
+        socket->startServerEncryption();
+        // connect ssl error signals etc
+
+        connect(socket, SIGNAL(sslErrors(QList<QSslError>)),
+                socket, SLOT(ignoreSslErrors()));
+
+        request = new QJsonRpcHttpRequest(socket, this);
+    }
+
+    QJsonRpcSocket *rpcSocket = new QJsonRpcSocket(request, this);
+    m_requests.insert(rpcSocket, request);
+    connect(rpcSocket, SIGNAL(messageReceived(QJsonRpcMessage)),
+                 this, SLOT(processIncomingMessage(QJsonRpcMessage)));
 }
 
 void QJsonRpcHttpServer::processIncomingMessage(const QJsonRpcMessage &message)

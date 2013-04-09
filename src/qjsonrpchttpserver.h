@@ -1,6 +1,7 @@
 #ifndef QJSONRPCHTTPSERVER_H
 #define QJSONRPCHTTPSERVER_H
 
+#include <QSslConfiguration>
 #include <QTcpServer>
 #include <QHash>
 
@@ -16,6 +17,9 @@ public:
     QJsonRpcHttpServer(QObject *parent = 0);
     ~QJsonRpcHttpServer();
 
+    QSslConfiguration sslConfiguration() const;
+    void setSslConfiguration(const QSslConfiguration &config);
+
 protected:
     virtual void incomingConnection(int socketDescriptor);
 
@@ -25,6 +29,7 @@ private Q_SLOTS:
 private:
     QHash<QJsonRpcSocket *, QTcpSocket *> m_tcpSockets;
     QHash<QJsonRpcSocket *, QJsonRpcHttpRequest *> m_requests;
+    QSslConfiguration m_sslConfiguration;
 
 };
 
