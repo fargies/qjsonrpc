@@ -135,14 +135,6 @@ private:
     QBuffer *m_buffer;
 };
 
-struct QObjectDeleter
-{
-    static inline void cleanup(QObject *pointer) {
-        if (pointer)
-            pointer->deleteLater();
-    }
-};
-
 class TestQJsonRpcServer: public QObject
 {
     Q_OBJECT
@@ -180,9 +172,9 @@ private Q_SLOTS:
 
 private:
     void clearBuffers();
-    QScopedPointer<FakeQJsonRpcServer, QObjectDeleter> m_server;
-    QScopedPointer<FakeQJsonRpcSocket, QObjectDeleter> m_clientSocket;
-    QScopedPointer<FakeQJsonRpcSocket, QObjectDeleter> m_serverSocket;
+    QScopedPointer<FakeQJsonRpcServer> m_server;
+    QScopedPointer<FakeQJsonRpcSocket> m_clientSocket;
+    QScopedPointer<FakeQJsonRpcSocket> m_serverSocket;
 
 };
 
