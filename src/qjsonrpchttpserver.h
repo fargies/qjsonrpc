@@ -14,29 +14,22 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * Lesser General Public License for more details.
  */
-#ifndef QJSONRPCTCPSERVER_H
-#define QJSONRPCTCPSERVER_H
+#ifndef QJSONRPCHTTPSERVER_H
+#define QJSONRPCHTTPSERVER_H
 
-#include <QHostAddress>
+#include "qjsonrpctcpserver.h"
 
-#include "qjsonrpcabstractserver.h"
-
-class QJsonRpcTcpServerPrivate;
-class QJSONRPC_EXPORT QJsonRpcTcpServer : public QJsonRpcAbstractServer
+class QJsonRpcHttpServerPrivate;
+class QJSONRPC_EXPORT QJsonRpcHttpServer : public QJsonRpcTcpServer
 {
     Q_OBJECT
 public:
-    explicit QJsonRpcTcpServer(QObject *parent = 0);
-    ~QJsonRpcTcpServer();
-
-    QString errorString() const;
-    bool listen(const QHostAddress &address, quint16 port);
+    explicit QJsonRpcHttpServer(QObject *parent = 0);
+    virtual ~QJsonRpcHttpServer();
 
 protected:
-    explicit QJsonRpcTcpServer(QJsonRpcTcpServerPrivate &dd, QObject *parent);
-
-    Q_DECLARE_PRIVATE(QJsonRpcTcpServer)
-    Q_DISABLE_COPY(QJsonRpcTcpServer)
+    Q_DECLARE_PRIVATE(QJsonRpcHttpServer)
+    Q_DISABLE_COPY(QJsonRpcHttpServer)
     Q_PRIVATE_SLOT(d_func(), void _q_processIncomingConnection())
     Q_PRIVATE_SLOT(d_func(), void _q_clientDisconnected())
 

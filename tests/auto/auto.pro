@@ -1,3 +1,6 @@
+DEPTH = ../..
+include($${DEPTH}/qjsonrpc.pri)
+
 TEMPLATE = subdirs
 SUBDIRS += json
 SUBDIRS += qjsonrpcmessage \
@@ -5,3 +8,7 @@ SUBDIRS += qjsonrpcmessage \
            qjsonrpcserver \
            qjsonrpcservice \
            qjsonrpchttpclient
+
+http_server {
+    SUBDIRS += qjsonrpchttpserver
+}

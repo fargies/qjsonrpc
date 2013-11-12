@@ -20,6 +20,8 @@
 #include <private/qobject_p.h>
 
 #include <QObjectCleanupHandler>
+#include <QHash>
+#include <QByteArray>
 
 #if QT_VERSION >= 0x050000
 #include <QJsonDocument>

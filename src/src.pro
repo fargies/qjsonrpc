@@ -36,10 +36,6 @@ INSTALL_HEADERS += \
     qjsonrpcservicereply.h \
     qjsonrpchttpclient.h
 
-HEADERS += \
-    $${INSTALL_HEADERS} \
-    $${PRIVATE_HEADERS}
-       
 SOURCES += \
     qjsonrpcmessage.cpp \
     qjsonrpcservice.cpp \
@@ -49,6 +45,17 @@ SOURCES += \
     qjsonrpctcpserver.cpp \
     qjsonrpcservicereply.cpp \
     qjsonrpchttpclient.cpp
+
+http_server {
+    include(http-parser/http-parser.pri)
+    PRIVATE_HEADERS += qjsonrpchttpserver_p.h
+    INSTALL_HEADERS += qjsonrpchttpserver.h
+    SOURCES += qjsonrpchttpserver.cpp
+}
+
+HEADERS += \
+    $${INSTALL_HEADERS} \
+    $${PRIVATE_HEADERS}
 
 # install
 headers.files = $${INSTALL_HEADERS}
