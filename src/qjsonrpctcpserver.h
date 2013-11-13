@@ -32,9 +32,12 @@ public:
     QString errorString() const;
     bool listen(const QHostAddress &address, quint16 port);
 
-private Q_SLOTS:
+protected Q_SLOTS:
     void processIncomingConnection();
     void clientDisconnected();
+
+protected:
+    explicit QJsonRpcTcpServer(QJsonRpcTcpServerPrivate *dd, QObject *parent);
 
 private:
     Q_DECLARE_PRIVATE(QJsonRpcTcpServer)

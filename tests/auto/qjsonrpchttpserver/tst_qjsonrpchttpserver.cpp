@@ -5,10 +5,12 @@
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
 #include <QNetworkReply>
+#include <QSslConfiguration>
 
 #include "json/qjsondocument.h"
 #include "qjsonrpchttpserver.h"
 #include "qjsonrpcmessage.h"
+#include "qjsonrpcservice.h"
 
 class TestQJsonRpcHttpServer: public QObject
 {
@@ -178,7 +180,7 @@ void TestQJsonRpcHttpServer::quickTest()
 void TestQJsonRpcHttpServer::sslTest()
 {
     QJsonRpcHttpServer server;
-    server.setSslConfiguration(serverSslConfiguration);
+//    server.setSslConfiguration(serverSslConfiguration);
     server.addService(new TestService);
     server.listen(QHostAddress::LocalHost, 8118);
 
@@ -192,7 +194,7 @@ void TestQJsonRpcHttpServer::sslTest()
     QNetworkRequest request(requestUrl);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json-rpc");
     request.setRawHeader("Accept", "application/json-rpc");
-    request.setSslConfiguration(serverSslConfiguration);
+//    request.setSslConfiguration(serverSslConfiguration);
 
     QNetworkAccessManager manager;
     QNetworkReply *reply = manager.post(request, document.toJson());

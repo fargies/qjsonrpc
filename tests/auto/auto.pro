@@ -5,5 +5,8 @@ SUBDIRS += qjsonrpcmessage \
            qjsonrpcserver \
            qjsonrpcservice \
            qjsonrpchttpclient \
-           qjsonrpc_custom_types \
-           qjsonrpchttpserver
+           qjsonrpc_custom_types
+
+http_server {
+    SUBDIRS += qjsonrpchttpserver
+}

@@ -1,11 +1,23 @@
 #include <QStringList>
 #include <QTcpSocket>
+#include <QHash>
 #include <QDateTime>
 
 #include "qjsondocument.h"
+#include "qjsonrpcsocket.h"
 #include "qjsonrpcmessage.h"
 #include "qjsonrpchttpserver_p.h"
 #include "qjsonrpchttpserver.h"
+#include "qjsonrpctcpserver_p.h"
+
+static const QString REQ_CONTENT_TYPE = "application/json";
+
+class QJsonRpcHttpServerPrivate : public QJsonRpcTcpServerPrivate
+{
+public:
+    QJsonRpcHttpServerPrivate() {}
+    QHash<QTcpSocket*, QJsonRpcHttpRequest*> requests;
+};
 
 QJsonRpcHttpRequest::QJsonRpcHttpRequest(QAbstractSocket *socket, QObject *parent)
     : QIODevice(parent),
@@ -31,6 +43,7 @@ QJsonRpcHttpRequest::QJsonRpcHttpRequest(QAbstractSocket *socket, QObject *paren
 
 QJsonRpcHttpRequest::~QJsonRpcHttpRequest()
 {
+    free(m_requestParser);
 }
 
 bool QJsonRpcHttpRequest::isSequential() const
@@ -42,9 +55,8 @@ qint64 QJsonRpcHttpRequest::readData(char *data, qint64 maxSize)
 {
     int bytesRead = 0;
     if (!m_requestPayload.isEmpty()) {
-        int bytesToRead = qMin(m_requestPayload.size(), (int)maxSize);
-        for (int byte = 0; byte < bytesToRead; ++byte, ++bytesRead)
-            data[bytesRead] = m_requestPayload[byte];
+        bytesRead = qMin(m_requestPayload.size(), (int)maxSize);
+        memcpy(data, m_requestPayload.constData(), bytesRead);
         m_requestPayload.remove(0, bytesRead);
     }
 
@@ -88,7 +100,9 @@ qint64 QJsonRpcHttpRequest::writeData(const char *data, qint64 maxSize)
         }
 
         QTextStream os(m_requestSocket);
+#ifndef QT_NO_TEXTCODEC
         os.setAutoDetectUnicode(true);
+#endif
 
         // header
         os << "HTTP/1.1 " << QByteArray::number(statusCode) << " OK\r\n";
@@ -117,7 +131,7 @@ int QJsonRpcHttpRequest::onBody(http_parser *parser, const char *at, size_t leng
 {
     QJsonRpcHttpRequest *request = (QJsonRpcHttpRequest *)parser->data;
     request->m_requestPayload = QByteArray(at, length);
-    qDebug() << "body";
+
     return 0;
 }
 
@@ -125,43 +139,50 @@ int QJsonRpcHttpRequest::onMessageComplete(http_parser *parser)
 {
     QJsonRpcHttpRequest *request = (QJsonRpcHttpRequest *)parser->data;
     Q_EMIT request->readyRead();
-    qDebug() << "message complete";
 
     return 0;
 }
 
 int QJsonRpcHttpRequest::onHeadersComplete(http_parser *parser)
 {
+    int err = 0;
     QJsonRpcHttpRequest *request = (QJsonRpcHttpRequest *)parser->data;
-    qDebug() << "headers complete: " << request->m_requestHeaders;
 
     if (parser->method != HTTP_GET && parser->method != HTTP_POST) {
         // close the socket, cleanup, delete, etc..
         qDebug() << "invalid method: " << parser->method;
-        return -1;
+        err = 501;
     }
 
     // check headers
     // see: http://www.jsonrpc.org/historical/json-rpc-over-http.html#http-header
-    if (!request->m_requestHeaders.contains("Content-Type") ||
+    if (!err && (!request->m_requestHeaders.contains("Content-Type") ||
         !request->m_requestHeaders.contains("Content-Length") ||
-        !request->m_requestHeaders.contains("Accept")) {
+        !request->m_requestHeaders.contains("Accept"))) {
         // signal the error somehow
         qDebug() << "did not contain the right headers";
-        return -1;
+        err = 400;
     }
 
-    QStringList supportedContentTypes =
-        QStringList() << "application/json-rpc" << "application/json" << "application/jsonrequest";
-    QString contentType = request->m_requestHeaders.value("Content-Type");
-    QString acceptType = request->m_requestHeaders.value("Accept");
-    if (!supportedContentTypes.contains(contentType) || !supportedContentTypes.contains(acceptType)) {
+    if (!err && !request->m_requestHeaders.value("Content-Type").contains(REQ_CONTENT_TYPE)) {
         // signal the error
-        qDebug() << "didn't contain contentType or acceptType";
-        return -1;
+        qDebug("didn't contain contentType");
+        err = 400;
+    }
+    if (!err && !request->m_requestHeaders.value("Accept").contains(REQ_CONTENT_TYPE)) {
+        qWarning("didn't contain acceptType");
     }
 
-    return 0;
+    if (err != 0)
+    {
+        QTextStream os(request->m_requestSocket);
+        os << "HTTP/1.1 " << QByteArray::number(err) << " ERROR\r\n"
+            << "\r\n";
+        request->m_requestSocket->close();
+        return -1;
+    }
+    else
+        return 0;
 }
 
 int QJsonRpcHttpRequest::onHeaderField(http_parser *parser, const char *at, size_t length)
@@ -188,7 +209,6 @@ int QJsonRpcHttpRequest::onMessageBegin(http_parser *parser)
 {
     QJsonRpcHttpRequest *request = (QJsonRpcHttpRequest *)parser->data;
     request->m_requestHeaders.clear();
-    qDebug() << "message begin";
 
     return 0;
 }
@@ -198,14 +218,12 @@ int QJsonRpcHttpRequest::onUrl(http_parser *parser, const char *at, size_t lengt
     Q_UNUSED(parser)
     Q_UNUSED(at)
     Q_UNUSED(length)
-    QString url = QString::fromAscii(at, length);
-    qDebug() << "requested url: " << url;
 
     return 0;
 }
 
 QJsonRpcHttpServer::QJsonRpcHttpServer(QObject *parent)
-    : QTcpServer(parent)
+    : QJsonRpcTcpServer(new QJsonRpcHttpServerPrivate, parent)
 {
 }
 
@@ -213,48 +231,42 @@ QJsonRpcHttpServer::~QJsonRpcHttpServer()
 {
 }
 
-QSslConfiguration QJsonRpcHttpServer::sslConfiguration() const
+/*
+ * TODO: handle ssl configurations directly in the server part by overriding
+ * nextPendingConnection() method.
+ */
+void QJsonRpcHttpServer::processIncomingConnection()
 {
-    return m_sslConfiguration;
-}
-
-void QJsonRpcHttpServer::setSslConfiguration(const QSslConfiguration &config)
-{
-    m_sslConfiguration = config;
-}
-
-void QJsonRpcHttpServer::incomingConnection(int socketDescriptor)
-{
-    QJsonRpcHttpRequest *request;
-    if (m_sslConfiguration.isNull()) {
-        QTcpSocket *socket = new QTcpSocket;
-        socket->setSocketDescriptor(socketDescriptor);
-
-        request = new QJsonRpcHttpRequest(socket, this);
-    } else {
-        QSslSocket *socket = new QSslSocket;
-        socket->setSocketDescriptor(socketDescriptor);
-        socket->setSslConfiguration(m_sslConfiguration);
-        socket->startServerEncryption();
-        // connect ssl error signals etc
-
-        connect(socket, SIGNAL(sslErrors(QList<QSslError>)),
-                socket, SLOT(ignoreSslErrors()));
-
-        request = new QJsonRpcHttpRequest(socket, this);
+    Q_D(QJsonRpcHttpServer);
+    QTcpSocket *tcpSocket = d->server->nextPendingConnection();
+    if (!tcpSocket) {
+        qDebug() << Q_FUNC_INFO << "nextPendingConnection is null";
+        return;
     }
 
-    QJsonRpcSocket *rpcSocket = new QJsonRpcSocket(request, this);
-    m_requests.insert(rpcSocket, request);
-    connect(rpcSocket, SIGNAL(messageReceived(QJsonRpcMessage)),
-                 this, SLOT(processIncomingMessage(QJsonRpcMessage)));
+    QJsonRpcHttpRequest *request = new QJsonRpcHttpRequest(tcpSocket, this);
+    QJsonRpcSocket *socket = new QJsonRpcSocket(request, this);
+#if QT_VERSION >= 0x050100 || QT_VERSION <= 0x050000
+    socket->setWireFormat(d->format);
+#endif
+
+    connect(socket, SIGNAL(messageReceived(QJsonRpcMessage)), this, SLOT(processMessage(QJsonRpcMessage)));
+    d->clients.append(socket);
+    connect(tcpSocket, SIGNAL(disconnected()), this, SLOT(clientDisconnected()));
+    d->socketLookup.insert(tcpSocket, socket);
+    d->requests.insert(tcpSocket, request);
 }
 
-void QJsonRpcHttpServer::processIncomingMessage(const QJsonRpcMessage &message)
+void QJsonRpcHttpServer::clientDisconnected()
 {
-    QJsonRpcSocket *socket = qobject_cast<QJsonRpcSocket*>(sender());
-    if (!socket)
-        return;
-
-    processMessage(socket, message);
+    Q_D(QJsonRpcHttpServer);
+    QTcpSocket *tcpSocket = static_cast<QTcpSocket*>(sender());
+    if (tcpSocket) {
+        if (d->requests.contains(tcpSocket)) {
+            QJsonRpcHttpRequest *req = d->requests.take(tcpSocket);
+            req->deleteLater();
+        }
+    }
+    QJsonRpcTcpServer::clientDisconnected();
 }
+

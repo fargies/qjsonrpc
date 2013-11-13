@@ -1,20 +1,15 @@
-#include <QTcpServer>
 #include <QTcpSocket>
 
-#include "qjsonrpcsocket.h"
-#include "qjsonrpcabstractserver_p.h"
 #include "qjsonrpctcpserver.h"
-
-class QJsonRpcTcpServerPrivate : public QJsonRpcAbstractServerPrivate
-{
-public:
-    QJsonRpcTcpServerPrivate() : server(0) {}
-    QTcpServer *server;
-    QHash<QTcpSocket*, QJsonRpcSocket*> socketLookup;
-};
+#include "qjsonrpctcpserver_p.h"
 
 QJsonRpcTcpServer::QJsonRpcTcpServer(QObject *parent)
     : QJsonRpcAbstractServer(new QJsonRpcTcpServerPrivate, parent)
+{
+}
+
+QJsonRpcTcpServer::QJsonRpcTcpServer(QJsonRpcTcpServerPrivate *dd, QObject *parent)
+    : QJsonRpcAbstractServer(dd, parent)
 {
 }
 
