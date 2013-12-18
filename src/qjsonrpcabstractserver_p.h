@@ -31,8 +31,6 @@ class QJsonRpcService;
 class QJsonRpcServiceProviderPrivate
 {
 public:
-    QByteArray serviceName(QJsonRpcService *service);
-
     QHash<QByteArray, QJsonRpcService*> services;
     QObjectCleanupHandler cleanupHandler;
 

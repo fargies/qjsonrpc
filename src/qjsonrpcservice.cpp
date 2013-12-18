@@ -85,11 +85,17 @@ static int qJsonNameToTypeId(const char *name)
 int QJsonRpcServicePrivate::qjsonRpcMessageType = qRegisterMetaType<QJsonRpcMessage>("QJsonRpcMessage");
 void QJsonRpcServicePrivate::cacheInvokableInfo()
 {
-    Q_Q(QJsonRpcService);
-    const QMetaObject *obj = q->metaObject();
-    int startIdx = q->staticMetaObject.methodCount(); // skip QObject slots
-    for (int idx = startIdx; idx < obj->methodCount(); ++idx) {
-        const QMetaMethod method = obj->method(idx);
+    if (!invokableMethodHash.isEmpty())
+        return; // FIXME: empty hash and re-introspect ?
+
+    QObject *obj = object();
+    if (!obj)
+        return;
+
+    const QMetaObject *meta = obj->metaObject();
+    int startIdx = obj->staticMetaObject.methodCount(); // skip QObject slots
+    for (int idx = startIdx; idx < meta->methodCount(); ++idx) {
+        const QMetaMethod method = meta->method(idx);
         if ((method.methodType() == QMetaMethod::Slot &&
              method.access() == QMetaMethod::Public) ||
              method.methodType() == QMetaMethod::Signal) {
@@ -145,6 +151,16 @@ void QJsonRpcServicePrivate::cacheInvokableInfo()
     }
 }
 
+QObject *QJsonRpcServicePrivate::object()
+{
+    Q_Q(QJsonRpcService);
+
+    if (q->metaObject() != &QJsonRpcService::staticMetaObject)
+        return q;
+    else
+        return q->parent();
+}
+
 static bool variantAwareCompare(const QJsonArray &params, const QList<int> &jsParameterTypes)
 {
     if (params.size() != jsParameterTypes.size())
@@ -163,6 +179,26 @@ static bool variantAwareCompare(const QJsonArray &params, const QList<int> &jsPa
     }
 
     return true;
+}
+
+QByteArray QJsonRpcService::serviceName()
+{
+    Q_D(QJsonRpcService);
+
+    QObject *obj = d->object();
+    if (!obj)
+        return QByteArray();
+
+    const QMetaObject *meta = obj->metaObject();
+    int idx = meta->indexOfClassInfo("serviceName");
+    if (idx >= 0)
+        return meta->classInfo(idx).name();
+
+    QVariant prop(obj->property("serviceName"));
+    if (prop.isValid() && prop.canConvert<QByteArray>())
+        return prop.value<QByteArray>();
+
+    return QByteArray(meta->className()).toLower();
 }
 
 //QJsonRpcMessage QJsonRpcService::dispatch(const QJsonRpcMessage &request) const
@@ -244,7 +280,7 @@ bool QJsonRpcService::dispatch(const QJsonRpcMessage &request)
     }
 
     bool success =
-        const_cast<QJsonRpcService*>(this)->qt_metacall(QMetaObject::InvokeMetaMethod, idx, parameters.data()) < 0;
+        d->object()->qt_metacall(QMetaObject::InvokeMetaMethod, idx, parameters.data()) < 0;
     if (!success) {
         QString message = QString("dispatch for method '%1' failed").arg(method.constData());
         QJsonRpcMessage error =

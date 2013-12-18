@@ -27,8 +27,16 @@ class QJSONRPC_EXPORT QJsonRpcService : public QObject
 {
     Q_OBJECT
 public:
+    /**
+     * @brief create a new QJsonRpcService.
+     *
+     * @details if the service is created as a standalone class it will bind
+     * it's own parent.
+     */
     explicit QJsonRpcService(QObject *parent = 0);
     ~QJsonRpcService();
+
+    QByteArray serviceName();
 
 Q_SIGNALS:
     void result(const QJsonRpcMessage &result);
@@ -38,7 +46,7 @@ Q_SIGNALS:
 protected:
     QJsonRpcSocket *senderSocket();
 
-protected Q_SLOTS:
+public Q_SLOTS:
     bool dispatch(const QJsonRpcMessage &request);
 
 private:

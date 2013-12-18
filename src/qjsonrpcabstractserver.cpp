@@ -17,22 +17,10 @@ QJsonRpcServiceProvider::~QJsonRpcServiceProvider()
 {
 }
 
-QByteArray QJsonRpcServiceProviderPrivate::serviceName(QJsonRpcService *service)
-{
-    const QMetaObject *mo = service->metaObject();
-    for (int i = 0; i < mo->classInfoCount(); i++) {
-        const QMetaClassInfo mci = mo->classInfo(i);
-        if (mci.name() == QLatin1String("serviceName"))
-            return mci.value();
-    }
-
-    return QByteArray(mo->className()).toLower();
-}
-
 bool QJsonRpcServiceProvider::addService(QJsonRpcService *service)
 {
     Q_D(QJsonRpcServiceProvider);
-    QByteArray serviceName = d->serviceName(service);
+    QByteArray serviceName = service->serviceName();
     if (serviceName.isEmpty()) {
         qDebug() << Q_FUNC_INFO << "service added without serviceName classinfo, aborting";
         return false;
@@ -53,7 +41,7 @@ bool QJsonRpcServiceProvider::addService(QJsonRpcService *service)
 bool QJsonRpcServiceProvider::removeService(QJsonRpcService *service)
 {
     Q_D(QJsonRpcServiceProvider);
-    QByteArray serviceName = d->serviceName(service);
+    QByteArray serviceName = service->serviceName();
     if (!d->services.contains(serviceName)) {
         qDebug() << Q_FUNC_INFO << "can nof find service with name " << serviceName;
         return false;
