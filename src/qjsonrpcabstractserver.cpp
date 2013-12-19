@@ -113,6 +113,12 @@ bool QJsonRpcAbstractServer::addService(QJsonRpcService *service)
                this, SLOT(notifyConnectedClients(QJsonRpcMessage)));
     connect(service, SIGNAL(notifyConnectedClients(QString,QJsonArray)),
                this, SLOT(notifyConnectedClients(QString,QJsonArray)));
+    connect(service, SIGNAL(childServiceAdded(QJsonRpcService *)),
+            this, SLOT(addService(QJsonRpcService *)),
+            Qt::DirectConnection);
+    connect(service, SIGNAL(destroyed(QObject *)),
+            this, SLOT(removeService(QObject *)),
+            Qt::DirectConnection);
     return true;
 }
 
@@ -125,7 +131,20 @@ bool QJsonRpcAbstractServer::removeService(QJsonRpcService *service)
                   this, SLOT(notifyConnectedClients(QJsonRpcMessage)));
     disconnect(service, SIGNAL(notifyConnectedClients(QString,QJsonArray)),
                   this, SLOT(notifyConnectedClients(QString,QJsonArray)));
+    disconnect(service, SIGNAL(childServiceAdded(QJsonRpcService *)),
+               this, SLOT(addService(QJsonRpcService *)));
+    disconnect(service, SIGNAL(destroyed(QObject *)),
+               this, SLOT(removeService(QObject *)));
     return true;
+}
+
+bool QJsonRpcAbstractServer::removeService(QObject *object)
+{
+    QJsonRpcService *service = qobject_cast<QJsonRpcService *>(object);
+    if (service)
+        return removeService(service);
+    else
+        return false;
 }
 
 #if QT_VERSION >= 0x050100 || QT_VERSION <= 0x050000

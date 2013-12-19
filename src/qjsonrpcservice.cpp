@@ -14,8 +14,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * Lesser General Public License for more details.
  */
+
 #include <QVarLengthArray>
 #include <QMetaMethod>
+#include <QEvent>
 #include <QEventLoop>
 #include <QDebug>
 
@@ -189,16 +191,84 @@ QByteArray QJsonRpcService::serviceName()
     if (!obj)
         return QByteArray();
 
+    if (obj != this)
+    {
+        QString name(objectName());
+        if (!name.isEmpty())
+            return name.toUtf8();
+    }
+    else
+    {
+        QVariant prop(obj->property("serviceName"));
+        if (prop.isValid() && prop.canConvert<QByteArray>())
+            return prop.value<QByteArray>();
+    }
+
     const QMetaObject *meta = obj->metaObject();
     int idx = meta->indexOfClassInfo("serviceName");
     if (idx >= 0)
         return meta->classInfo(idx).name();
 
-    QVariant prop(obj->property("serviceName"));
-    if (prop.isValid() && prop.canConvert<QByteArray>())
-        return prop.value<QByteArray>();
-
     return QByteArray(meta->className()).toLower();
+}
+
+bool QJsonRpcService::childWatch() const
+{
+    const Q_D(QJsonRpcService);
+    return d->childWatch;
+}
+
+void QJsonRpcService::setChildWatch(bool value, bool live)
+{
+    Q_D(QJsonRpcService);
+    QObject *obj = d->object();
+
+    if (d->childWatch == value || !obj)
+        return;
+
+    d->childWatch = value;
+    if (!value)
+    {
+        obj->removeEventFilter(d->filter);
+
+        if (!live)
+            return;
+
+        QList<QJsonRpcService *> list(obj->findChildren<QJsonRpcService *>());
+        QList<QJsonRpcService *>::iterator it = list.begin();
+
+        for (; it != list.end(); ++it)
+        {
+            /* check if the object is a service-only object */
+            if ((*it)->metaObject() == &QJsonRpcService::staticMetaObject)
+                (*it)->deleteLater();
+        }
+    }
+    else
+    {
+        if (!d->filter)
+            d->filter = new QJsonRpcServiceEventFilter(this);
+
+        obj->installEventFilter(d->filter);
+
+        if (!live)
+            return;
+
+        QObjectList list(obj->children());
+        QObjectList::iterator it = list.begin();
+
+        for (; it != list.end(); ++it)
+            addChildService(*it);
+    }
+}
+
+void QJsonRpcService::addChildService(QObject *obj)
+{
+    QJsonRpcService *service = new QJsonRpcService(obj);
+    service->setObjectName(
+            QString("%1.%2").arg(QString(serviceName()),
+                QString(service->serviceName())));
+    emit childServiceAdded(service);
 }
 
 //QJsonRpcMessage QJsonRpcService::dispatch(const QJsonRpcMessage &request) const
@@ -293,5 +363,26 @@ bool QJsonRpcService::dispatch(const QJsonRpcMessage &request)
     QVariant returnCopy(vars[0]);
     Q_EMIT result(request.createResponse(QJsonRpcConverter::toJson(returnCopy)));
     return true;
+}
+
+QJsonRpcServiceEventFilter::QJsonRpcServiceEventFilter(QJsonRpcService *parent) :
+    QObject(parent)
+{
+}
+
+bool QJsonRpcServiceEventFilter::eventFilter(QObject * /*watched*/, QEvent *event)
+{
+    switch (event->type())
+    {
+        case QEvent::ChildAdded:
+            {
+                QJsonRpcService *srv = static_cast<QJsonRpcService *>(parent());
+                srv->addChildService(static_cast<QChildEvent *>(event)->child());
+            }
+            break;
+        default:
+            break;
+    };
+    return false;
 }
 

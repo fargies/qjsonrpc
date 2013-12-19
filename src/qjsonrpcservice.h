@@ -23,9 +23,13 @@
 class QJsonRpcSocket;
 class QJsonRpcServiceProvider;
 class QJsonRpcServicePrivate;
+class QJsonRpcServiceEventFilter;
+
 class QJSONRPC_EXPORT QJsonRpcService : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(bool childWatch READ childWatch WRITE setChildWatch);
+
 public:
     /**
      * @brief create a new QJsonRpcService.
@@ -38,13 +42,31 @@ public:
 
     QByteArray serviceName();
 
+    /**
+     * @brief watch for child creation.
+     *
+     * @details
+     * objects created are automatically added as services.
+     *
+     * @param[in] value enable/disable children mode.
+     * @param[in] live add/remove service on current children.
+     */
+    void setChildWatch(bool value, bool live = false);
+    bool childWatch() const;
+
 Q_SIGNALS:
     void result(const QJsonRpcMessage &result);
     void notifyConnectedClients(const QJsonRpcMessage &message);
     void notifyConnectedClients(const QString &method, const QJsonArray &params = QJsonArray());
 
+    /**
+     * @brief signal emitted whenever a child service is added.
+     */
+    void childServiceAdded(QJsonRpcService *);
+
 protected:
     QJsonRpcSocket *senderSocket();
+    void addChildService(QObject *obj);
 
 public Q_SLOTS:
     bool dispatch(const QJsonRpcMessage &request);
@@ -53,7 +75,7 @@ private:
     Q_DECLARE_PRIVATE(QJsonRpcService)
     QScopedPointer<QJsonRpcServicePrivate> d_ptr;
     friend class QJsonRpcServiceProvider;
-
+    friend class QJsonRpcServiceEventFilter;
 };
 
 #endif

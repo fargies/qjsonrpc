@@ -56,7 +56,6 @@ class QJSONRPC_EXPORT QJsonRpcAbstractServer : public QObject,
 public:
     virtual ~QJsonRpcAbstractServer();
     virtual QString errorString() const = 0;
-    virtual bool addService(QJsonRpcService *service);
     virtual bool removeService(QJsonRpcService *service);
 
 #if QT_VERSION >= 0x050100 || QT_VERSION <= 0x050000
@@ -67,11 +66,18 @@ public:
 public Q_SLOTS:
     void notifyConnectedClients(const QJsonRpcMessage &message);
     void notifyConnectedClients(const QString &method, const QJsonArray &params);
+    virtual bool addService(QJsonRpcService *service);
 
 protected Q_SLOTS:
     virtual void processIncomingConnection() = 0;
     virtual void clientDisconnected() = 0;
     void processMessage(const QJsonRpcMessage &message);
+
+    /**
+     * @brief remove the service.
+     * @details convenience function to hook service's destroyed signal.
+     */
+    bool removeService(QObject *service);
 
 protected:
     explicit QJsonRpcAbstractServer(QJsonRpcAbstractServerPrivate *dd, QObject *parent);

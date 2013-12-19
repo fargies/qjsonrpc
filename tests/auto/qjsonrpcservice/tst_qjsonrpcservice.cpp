@@ -34,6 +34,7 @@ private slots:
     void testDispatch();
     void testSignals();
     void testDetached();
+    void testChild();
 };
 
 class TestService : public QJsonRpcService
@@ -135,31 +136,67 @@ void TestQJsonRpcService::testDetached()
     provider.addService(&service);
 
     QJsonRpcMessage validRequestDispatch =
-        QJsonRpcMessage::createRequest("service.testMethod", QString("testParam"));
+        QJsonRpcMessage::createRequest(QLatin1String("service.testMethod"),
+                                       QLatin1String("testParam"));
     QVERIFY(service.dispatch(validRequestDispatch));
 
     QJsonRpcMessage validNotificationDispatch =
-        QJsonRpcMessage::createNotification("service.testMethod", "testParam");
+        QJsonRpcMessage::createNotification(QLatin1String("service.testMethod"),
+                                            QLatin1String("testParam"));
     QVERIFY(service.dispatch(validNotificationDispatch));
 
     QJsonRpcMessage invalidResponseDispatch =
-        validRequestDispatch.createResponse("testResult");
+        validRequestDispatch.createResponse(QLatin1String("testResult"));
     QVERIFY(!service.dispatch(invalidResponseDispatch));
 
     QJsonRpcMessage invalidDispatch;
     QVERIFY(!service.dispatch(invalidDispatch));
 
     QJsonRpcMessage validRequestSignalDispatch =
-        QJsonRpcMessage::createRequest("service.testSignal");
+        QJsonRpcMessage::createRequest(QLatin1String("service.testSignal"));
     QVERIFY(service.dispatch(validRequestSignalDispatch));
 
     QJsonRpcMessage validRequestSignalWithParamDispatch =
-        QJsonRpcMessage::createRequest("service.testSignalWithParameter", "testParam");
+        QJsonRpcMessage::createRequest(QLatin1String("service.testSignalWithParameter"),
+                                       QLatin1String("testParam"));
     QVERIFY(service.dispatch(validRequestSignalWithParamDispatch));
 
     QJsonRpcMessage invalidRequestSignalDispatch =
-        QJsonRpcMessage::createRequest("service.testSignal", "testParam");
+        QJsonRpcMessage::createRequest(QLatin1String("service.testSignal"),
+                                       QLatin1String("testParam"));
     QCOMPARE(service.dispatch(invalidRequestSignalDispatch), false);
+}
+
+void TestQJsonRpcService::testChild()
+{
+    TestServiceProvider provider;
+    TestDetachedService object;
+    TestDetachedService *child = new TestDetachedService(&object);
+    child->setObjectName("child1");
+
+    QJsonRpcService service(&object);
+    service.setChildWatch(true, true);
+
+    child = new TestDetachedService(&object);
+    child->setObjectName("child2");
+
+    provider.addService(&service);
+
+    QJsonRpcMessage validRequestDispatch =
+        QJsonRpcMessage::createRequest("service.child1.testMethod",
+                QString("testParam"));
+    QVERIFY(service.dispatch(validRequestDispatch));
+
+    validRequestDispatch =
+        QJsonRpcMessage::createRequest("service.child2.testMethod",
+                QString("testParam"));
+    QVERIFY(service.dispatch(validRequestDispatch));
+
+    delete child;
+    validRequestDispatch =
+        QJsonRpcMessage::createRequest("service.child2.testMethod",
+                QString("testParam"));
+    QVERIFY(service.dispatch(validRequestDispatch));
 }
 
 QTEST_MAIN(TestQJsonRpcService)

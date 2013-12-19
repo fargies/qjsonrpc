@@ -19,14 +19,28 @@
 
 #include <QHash>
 #include <QPointer>
+#include <QObject>
 
 class QJsonRpcSocket;
 class QJsonRpcService;
+
+class QJsonRpcServiceEventFilter : public QObject
+{
+    Q_OBJECT
+
+public:
+    QJsonRpcServiceEventFilter(QJsonRpcService *parent);
+
+    bool eventFilter(QObject *watched, QEvent *event);
+};
+
 class QJsonRpcServicePrivate
 {
 public:
-    QJsonRpcServicePrivate(QJsonRpcService *parent)
-        : q_ptr(parent)
+    QJsonRpcServicePrivate(QJsonRpcService *parent) :
+        childWatch(false),
+        filter(0),
+        q_ptr(parent)
     {
     }
 
@@ -38,6 +52,8 @@ public:
     QHash<int, QList<int> > parameterTypeHash;    // actual parameter types to convert to
     QHash<int, QList<int> > jsParameterTypeHash;  // for comparing incoming messages
     QPointer<QJsonRpcSocket> socket;
+    bool childWatch;
+    QJsonRpcServiceEventFilter *filter;
 
     QJsonRpcService * const q_ptr;
     Q_DECLARE_PUBLIC(QJsonRpcService)
