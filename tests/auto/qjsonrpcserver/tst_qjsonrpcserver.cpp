@@ -35,6 +35,7 @@
 #include "qjsonrpcservice.h"
 #include "qjsonrpcmessage.h"
 #include "qjsonrpcservicereply.h"
+#include "qjsonrpcconverter.h"
 
 class FakeQJsonRpcSocket : public QJsonRpcSocket
 {
@@ -175,16 +176,13 @@ private Q_SLOTS:
 
     void testAddRemoveService();
     void testServiceWithNoGivenName();
+    void testListOfInts();
 
 private:
     void clearBuffers();
     QScopedPointer<FakeQJsonRpcServer, QObjectDeleter> m_server;
     QScopedPointer<FakeQJsonRpcSocket, QObjectDeleter> m_clientSocket;
     QScopedPointer<FakeQJsonRpcSocket, QObjectDeleter> m_serverSocket;
-
-private:
-    // fix later
-    // void testListOfInts();
 
 };
 
@@ -310,6 +308,7 @@ TestQJsonRpcServer::TestQJsonRpcServer()
 void TestQJsonRpcServer::initTestCase()
 {
     qRegisterMetaType<QJsonRpcMessage>("QJsonRpcMessage");
+    qRegisterJsonRpcOperators<QList<int> >("QList<int>");
 }
 
 void TestQJsonRpcServer::cleanupTestCase()
@@ -736,21 +735,50 @@ void TestQJsonRpcServer::testNotifyServiceSocket()
 }
 */
 
-/*
+QJsonValue &operator << (QJsonValue &val, const QList<int> &list) {
+    QList<int>::const_iterator it = list.constBegin();
+    QJsonArray arr;
+
+    for (; it != list.end(); ++it)
+        arr.append(QJsonValue(*it));
+
+    val = arr;
+    return val;
+}
+
+QJsonValue operator >> (const QJsonValue &val, QList<int> &list) {
+    if (!val.isArray())
+        return QJsonValue(QJsonValue::Undefined);
+    else
+    {
+        QJsonArray arr(val.toArray());
+        QJsonArray::const_iterator it = arr.constBegin();
+
+        list.clear();
+        list.reserve(arr.size());
+
+        for (; it != arr.end(); ++it)
+        {
+            list.append((int) (*it).toDouble());
+        }
+    }
+    return val;
+}
+
 Q_DECLARE_METATYPE(QList<int>)
 void TestQJsonRpcServer::testListOfInts()
 {
     m_server->addService(new TestService);
     qRegisterMetaType<QList<int> >("QList<int>");
     QList<int> intList = QList<int>() << 300 << 30 << 3;
-    QVariant variant = QVariant::fromValue(intList);
+
     QJsonRpcMessage intRequest =
-        QJsonRpcMessage::createRequest("service.methodWithListOfInts", variant);
+        QJsonRpcMessage::createRequest("service.methodWithListOfInts",
+                                       QJsonRpcConverter::toJson(intList));
     QJsonRpcMessage response = m_clientSocket->sendMessageBlocking(intRequest);
     QVERIFY(response.type() != QJsonRpcMessage::Error);
     QVERIFY(response.result().toBool());
 }
-*/
 
 void TestQJsonRpcServer::testStringListParameter()
 {

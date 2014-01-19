@@ -19,7 +19,6 @@
 
 #include <QHash>
 #include <QPointer>
-#include <QVarLengthArray>
 
 class QJsonRpcSocket;
 class QJsonRpcService;
@@ -40,18 +39,6 @@ public:
 
     QJsonRpcService * const q_ptr;
     Q_DECLARE_PUBLIC(QJsonRpcService)
-};
-
-class ObjectCreator
-{
-public:
-    void *create(int type);
-    ~ObjectCreator();
-
-private:
-    static const int prealloc = 10;
-    QVarLengthArray<QPair<void*, int>, prealloc> m_objects;
-
 };
 
 #endif

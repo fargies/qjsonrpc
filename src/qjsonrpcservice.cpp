@@ -17,10 +17,12 @@
 #include <QVarLengthArray>
 #include <QMetaMethod>
 #include <QEventLoop>
+#include <QDebug>
 
 #include "qjsonrpcsocket.h"
 #include "qjsonrpcservice_p.h"
 #include "qjsonrpcservice.h"
+#include "qjsonrpcconverter.h"
 
 QJsonRpcService::QJsonRpcService(QObject *parent)
     : QObject(parent),
@@ -40,7 +42,7 @@ QJsonRpcSocket *QJsonRpcService::senderSocket()
     return 0;
 }
 
-int convertVariantTypeToJSType(int type)
+static int convertVariantTypeToJSType(int type)
 {
     switch (type) {
     case QMetaType::Int:
@@ -55,14 +57,29 @@ int convertVariantTypeToJSType(int type)
     case QMetaType::UShort:
     case QMetaType::UChar:
     case QMetaType::Float:
-        return QMetaType::Double;    // all numeric types in js are doubles
-        break;
-
+        return QJsonValue::Double;    // all numeric types in js are doubles
+    case QMetaType::QVariantList:
+    case QMetaType::QStringList:
+        return QJsonValue::Array;
+    case QMetaType::QVariantMap:
+        return QJsonValue::Object;
+    case QMetaType::QString:
+        return QJsonValue::String;
+    case QMetaType::Bool:
+        return QJsonValue::Bool;
     default:
         break;
     }
 
-    return type;
+    return QJsonValue::Undefined;
+}
+
+static int qJsonNameToTypeId(const char *name)
+{
+    int id = static_cast<int>(QVariant::nameToType(name));
+    if (id == QVariant::UserType || id == QVariant::Invalid)
+        id = QMetaType::type(name);
+    return id;
 }
 
 int QJsonRpcServicePrivate::qjsonRpcMessageType = qRegisterMetaType<QJsonRpcMessage>("QJsonRpcMessage");
@@ -82,45 +99,66 @@ void QJsonRpcServicePrivate::cacheInvokableInfo()
             QByteArray signature = method.signature();
             QByteArray methodName = signature.left(signature.indexOf('('));
 #endif
-            invokableMethodHash.insert(methodName, idx);
 
             QList<int> parameterTypes;
             QList<int> jsParameterTypes;
+            int type;
 #if QT_VERSION >= 0x050000
-            parameterTypes << method.returnType();
-#else
-            parameterTypes << QMetaType::type(method.typeName());
-#endif
-            foreach(QByteArray parameterType, method.parameterTypes()) {
-                parameterTypes << QMetaType::type(parameterType);
-                jsParameterTypes << convertVariantTypeToJSType(QMetaType::type(parameterType));                
+            if ((type = method.returnType()) == QMetaType::UnknownType)
+            {
+                qWarning() << "QJsonRpcService: can't bind method's return type"
+                    << QString(methodName);
+                continue;
             }
+#else
+            if (qstrlen(method.typeName()) == 0) {
+                /* typeName returns an empty string for void returns */
+                type = 0;
+            } else if ((type = qJsonNameToTypeId(method.typeName())) == 0) {
+                qWarning() << "QJsonRpcService: can't bind method's return type"
+                    << QString(methodName);
+                continue;
+            }
+#endif
+            parameterTypes << type;
 
+            foreach(QByteArray parameterType, method.parameterTypes()) {
+                type = QMetaType::type(parameterType);
+
+                if (type == 0)
+                {
+                    qWarning() << "QJsonRpcService: can't bind method's parameter"
+                        << QString(parameterType);
+                    methodName.clear();
+                    break;
+                }
+                parameterTypes << type;
+                jsParameterTypes << convertVariantTypeToJSType(type);
+            }
+            if (methodName.isEmpty())
+                continue;
+
+            invokableMethodHash.insert(methodName, idx);
             parameterTypeHash[idx] = parameterTypes;
             jsParameterTypeHash[idx] = jsParameterTypes;
         }
     }
 }
 
-bool variantAwareCompare(const QList<int> &argumentTypes, const QList<int> &jsParameterTypes)
+static bool variantAwareCompare(const QJsonArray &params, const QList<int> &jsParameterTypes)
 {
-    if (argumentTypes.size() != jsParameterTypes.size())
+    if (params.size() != jsParameterTypes.size())
         return false;
 
-    for (int i = 0; i < argumentTypes.size(); ++i) {
-        if (argumentTypes.at(i) == jsParameterTypes.at(i))
-            continue;
-        else if (jsParameterTypes.at(i) == QMetaType::QVariant)
-            continue;
-        else if (argumentTypes.at(i) == QMetaType::QVariantList) {
-            if (jsParameterTypes.at(i) == QMetaType::QStringList)
-                continue;
+    QJsonArray::const_iterator it = params.constBegin();
+    for (int i = 0; it != params.end(); ++it, ++i) {
+        int jsType = jsParameterTypes.at(i);
 
-            if (jsParameterTypes.at(i) == QMetaType::QVariantList)
-                continue;
-
-            return false;
-        } else
+        if ((*it).type() == jsType)
+            continue;
+        else if (jsType == QJsonValue::Undefined)
+            continue;
+        else
             return false;
     }
 
@@ -150,15 +188,11 @@ bool QJsonRpcService::dispatch(const QJsonRpcMessage &request)
     int idx = -1;
     QList<int> parameterTypes;
     QList<int> indexes = d->invokableMethodHash.values(method);
-    QVariantList arguments = request.params().toVariantList();
-    QList<int> argumentTypes;
-    foreach (QVariant argument, arguments) {
-        argumentTypes.append(static_cast<int>(argument.type()));
-    }
+    const QJsonArray &arguments = request.params();
 
     foreach (int methodIndex, indexes) {
-        if (variantAwareCompare(argumentTypes, d->jsParameterTypeHash[methodIndex])) {
-            parameterTypes = d->parameterTypeHash[methodIndex];
+        if (variantAwareCompare(arguments, d->jsParameterTypeHash.value(methodIndex))) {
+            parameterTypes = d->parameterTypeHash.value(methodIndex);
             idx = methodIndex;
             break;
         }
@@ -173,32 +207,40 @@ bool QJsonRpcService::dispatch(const QJsonRpcMessage &request)
 
     QVarLengthArray<void *, 10> parameters;
     parameters.reserve(parameterTypes.count());
+    QVector<QVariant> vars;
+    vars.reserve(parameterTypes.count());
 
-    ObjectCreator objectCreator;
     // first argument to metacall is the return value
-    QMetaType::Type returnType = static_cast<QMetaType::Type>(parameterTypes[0]);
-    QVariant returnValue(returnType == QMetaType::Void ?
-                             QVariant() : QVariant(returnType, objectCreator.create(returnType)));
-
-    if (returnType == QMetaType::QVariant)
-        parameters.append(&returnValue);
+    vars.append(QVariant(parameterTypes.value(0), (const void *) 0));
+    if (parameterTypes.value(0) == QMetaType::QVariant)
+        parameters.append(&vars.last());
     else
-        parameters.append(returnValue.data());
+        parameters.append(vars.last().data());
 
     // compile arguments
     for (int i = 0; i < parameterTypes.size() - 1; ++i) {
-        int parameterType = parameterTypes[i + 1];
-        const QVariant &argument = arguments.at(i);
-        if (!argument.isValid()) {
-            // pass in a default constructed parameter in this case
-            parameters.append(objectCreator.create(parameterType));
-        } else {
-            if (argument.userType() != parameterType &&
-                parameterType != QMetaType::QVariant &&
-                const_cast<QVariant*>(&argument)->canConvert(static_cast<QVariant::Type>(parameterType)))
-                const_cast<QVariant*>(&argument)->convert(static_cast<QVariant::Type>(parameterType));
-            parameters.append(const_cast<void *>(argument.constData()));
+        int parameterType = parameterTypes.value(i + 1);
+
+        QVariant var(QJsonRpcConverter::fromJson(arguments.at(i), parameterType));
+
+        if (!var.isValid())
+        {
+#if !defined(QT_NO_DEBUG_STREAM) && !defined(QT_JSON_READONLY)
+            qWarning() << "QJsonRpcService: failed to convert argument:" <<
+                          arguments.at(i) << "to" << QMetaType::typeName(parameterType);
+#else
+            qWarning() << "QJsonRpcService: failed to convert argument to" <<
+                          QMetaType::typeName(parameterType);
+#endif
+
+            QJsonRpcMessage error =
+                    request.createErrorResponse(QJsonRpc::InvalidParams,
+                                                QString(QLatin1String("invalid parameter")));
+            Q_EMIT result(error);
+            return false;
         }
+        vars.append(var);
+        parameters.append(const_cast<void *>(vars.last().constData()));
     }
 
     bool success =
@@ -211,26 +253,9 @@ bool QJsonRpcService::dispatch(const QJsonRpcMessage &request)
         return false;
     }
 
-    Q_EMIT result(request.createResponse(QJsonValue::fromVariant(returnValue)));
+    // cleanup and result
+    QVariant returnCopy(vars[0]);
+    Q_EMIT result(request.createResponse(QJsonRpcConverter::toJson(returnCopy)));
     return true;
 }
 
-void *ObjectCreator::create(int type)
-{
-#if QT_VERSION >= 0x050000
-    void *value = QMetaType::create(type);
-#else
-    void *value = QMetaType::construct(type);
-#endif
-
-    m_objects.append(qMakePair(value, type));
-    return value;
-}
-
-ObjectCreator::~ObjectCreator()
-{
-    QVarLengthArray<QPair<void*, int>, prealloc>::const_iterator it;
-    for (it = m_objects.constBegin(); it != m_objects.constEnd(); ++it)
-        QMetaType::destroy(it->second, it->first);
-    m_objects.clear();
-}

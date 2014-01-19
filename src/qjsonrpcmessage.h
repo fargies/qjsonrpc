@@ -31,6 +31,7 @@
 #endif
 
 #include "qjsonrpc_export.h"
+#include "qjsonrpcconverter.h"
 
 // error codes defined by spec
 namespace QJsonRpc {
@@ -88,6 +89,10 @@ public:
 
     // response
     QJsonValue result() const;
+
+    template <typename T>
+    T result(bool *ok = 0) const
+    { return QJsonRpcConverter::fromJson<T>(result(), ok); }
 
     // error
     int errorCode() const;
