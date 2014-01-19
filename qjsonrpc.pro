@@ -4,5 +4,5 @@ SUBDIRS += src \
 CONFIG += ordered
 
 # Comment this to disable the http server classes
-CONFIG += http_server
+CONFIG += http_server fcgi_server
 

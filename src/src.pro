@@ -59,6 +59,13 @@ http_server {
     SOURCES += qjsonrpchttpserver.cpp
 }
 
+fcgi_server {
+    PRIVATE_HEADERS += qjsonrpcfcgiserver_p.h
+    INSTALL_HEADERS += qjsonrpcfcgiserver.h
+    SOURCES += qjsonrpcfcgiserver.cpp
+    LIBS += -lfcgi
+}
+
 # install
 headers.files = $${INSTALL_HEADERS}
 headers.path = $${PREFIX}/include/qjsonrpc
