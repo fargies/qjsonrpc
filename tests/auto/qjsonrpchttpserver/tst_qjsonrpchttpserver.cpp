@@ -151,8 +151,9 @@ void TestQJsonRpcHttpServer::quickTest()
     QTimer::singleShot(5000, &loop, SLOT(quit()));
     loop.exec();
 
-    qDebug() << reply->readAll();
-    qDebug() << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
+    QCOMPARE(200, reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt());
+    QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+    QVERIFY(doc.isObject());
     reply->deleteLater();
 
 /*

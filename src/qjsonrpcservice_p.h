@@ -36,10 +36,32 @@ public:
 
     void cacheInvokableInfo();
     static int qjsonRpcMessageType;
+
+    struct ParamInfo
+    {
+        ParamInfo(int type = 0, int jsType = 0, const QString &name = QString(), bool out = false) :
+            type(type), jsType(jsType), name(name), out(out)
+        {}
+
+        int type; /* actual types to convert to */
+        int jsType; /* for incoming messages */
+        QString name;
+        bool out; /* is the parameter an output argument */
+    };
+
+    struct MethodInfo
+    {
+        MethodInfo() :
+            retType(QMetaType::Void), hasOut(false)
+        {}
+
+        QList<ParamInfo> params;
+        int retType;
+        bool hasOut;
+    };
+
+    QHash<int, MethodInfo > methods;
     QHash<QByteArray, QList<int> > invokableMethodHash;
-    QHash<int, QList<int> > parameterTypeHash;    // actual parameter types to convert to
-    QHash<int, QList<int> > jsParameterTypeHash;  // for comparing incoming messages
-    QHash<int, QStringList> parameterNamesHash;
     QPointer<QJsonRpcSocket> socket;
 
     QJsonRpcService * const q_ptr;
