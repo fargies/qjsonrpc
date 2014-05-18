@@ -93,9 +93,10 @@ void QJsonRpcServicePrivate::cacheInvokableInfo()
 #endif
 
             MethodInfo info;
-            info.params.reserve(method.parameterCount());
 
 #if QT_VERSION >= 0x050000
+            info.params.reserve(method.parameterCount());
+
             if ((info.retType = method.returnType()) == QMetaType::UnknownType)
             {
                 qWarning() << "QJsonRpcService: can't bind method's return type"
@@ -105,7 +106,7 @@ void QJsonRpcServicePrivate::cacheInvokableInfo()
 #else
             if (qstrlen(method.typeName()) == 0) {
                 /* typeName returns an empty string for void returns */
-                type = 0;
+                info.retType = 0;
             } else if ((info.retType = QMetaType::type(method.typeName())) == 0) {
                 qWarning() << "QJsonRpcService: can't bind method's return type"
                            << QString(methodName);
@@ -115,7 +116,7 @@ void QJsonRpcServicePrivate::cacheInvokableInfo()
 
             const QList<QByteArray> &types = method.parameterTypes();
             const QList<QByteArray> &names = method.parameterNames();
-            for (int i = 0; i < method.parameterCount(); ++i)
+            for (int i = 0; i < types.size(); ++i)
             {
                 QByteArray parameterType = types.at(i);
                 const QByteArray &parameterName = names.at(i);
@@ -187,6 +188,82 @@ static bool jsParamCompare(const QJsonObject &params, const QJsonRpcServicePriva
     return true;
 }
 
+/*
+ * Convenience function to convert JSonValue to the right type.
+ */
+static inline QVariant argumentConvert(
+        const QJsonValue &val,
+        const QJsonRpcServicePrivate::ParamInfo &info)
+{
+    if (val.isUndefined())
+        return QVariant(info.type, NULL);
+
+#if QT_VERSION >= 0x050200
+    if (info.type >= QMetaType::User)
+    {
+        /* for user defined types only custom conversion will work */
+        QVariant arg(val);
+        if (arg.convert(info.type))
+            return arg;
+    }
+    else if (info.type == QMetaType::QJsonValue ||
+             info.type == QMetaType::QVariant)
+        return QVariant(val);
+
+    QVariant arg(val.toVariant());
+    if (arg.userType() == info.type || info.type == QMetaType::QVariant)
+        return arg;
+    else if (arg.convert(info.type))
+        return arg;
+    else if (info.type < QMetaType::User) /* already tried for >= user */
+    {
+        QVariant arg(val);
+        if (arg.convert(info.type))
+            return arg;
+    }
+    return QVariant();
+#else
+    QVariant arg(val.toVariant());
+    /* custom conversions could not be registered before 5.2, so this is only
+         * an optimization */
+    if (info.type != QMetaType::QVariant &&
+            info.type != arg.type() &&
+            !arg.convert(static_cast<QVariant::Type>(info.type)))
+        return QVariant();
+    return arg;
+#endif
+}
+
+static inline QJsonValue retConvert(QVariant &ret)
+{
+#if QT_VERSION >= 0x050200
+    switch (ret.type())
+    {
+    case QMetaType::Bool:
+    case QMetaType::Int:
+    case QMetaType::Double:
+    case QMetaType::LongLong:
+    case QMetaType::ULongLong:
+    case QMetaType::UInt:
+    case QMetaType::QString:
+    case QMetaType::QStringList:
+    case QMetaType::QVariantList:
+    case QMetaType::QVariantMap:
+        return QJsonValue::fromVariant(ret);
+    default:
+        /* if a conversion operator was registered it will be used */
+        if (ret.convert(QMetaType::QJsonValue))
+            return ret.toJsonValue();
+        else
+            return QJsonValue();
+    }
+#else
+    /* custom conversions could not be registered before 5.2, so this is only
+     * an optimization */
+    return QJsonValue::fromVariant(ret);
+#endif
+}
+
 static inline QByteArray methodName(const QJsonRpcMessage &request)
 {
     const QString &methodPath(request.method());
@@ -224,10 +301,25 @@ bool QJsonRpcService::dispatch(const QJsonRpcMessage &request)
             QJsonRpcServicePrivate::MethodInfo &info = d->methods[methodIndex];
             if (jsParamCompare(namedParametersObject, info)) {
                 idx = methodIndex;
+                arguments.reserve(info.params.size());
                 for (int i = 0; i < info.params.size(); ++i)
                 {
-                    QJsonValue val = namedParametersObject.value(info.params.at(i).name);
-                    arguments.push_back(val.toVariant());
+                    const QJsonRpcServicePrivate::ParamInfo &parInfo(info.params.at(i));
+                    QJsonValue val = namedParametersObject.value(parInfo.name);
+                    QVariant arg = argumentConvert(val, parInfo);
+                    if (!arg.isValid())
+                    {
+                        QString message;
+                        if (!val.isUndefined())
+                            message = QString("failed to construct default '%1' object").arg(parInfo.name);
+                        else
+                            message = QString("failed to convert '%1' object from JSon").arg(parInfo.name);
+                        QJsonRpcMessage error =request.createErrorResponse(
+                                    QJsonRpc::InvalidParams, message);
+                        Q_EMIT result(error);
+                        return false;
+                    }
+                    arguments.push_back(arg);
                 }
                 break;
             }
@@ -239,7 +331,26 @@ bool QJsonRpcService::dispatch(const QJsonRpcMessage &request)
             QJsonRpcServicePrivate::MethodInfo &info = d->methods[methodIndex];
             if (jsParamCompare(arrayParameters, info)) {
                 idx = methodIndex;
-                arguments = arrayParameters.toVariantList();
+                arguments.reserve(info.params.size());
+                for (int i = 0; i < info.params.size(); ++i)
+                {
+                    const QJsonRpcServicePrivate::ParamInfo &parInfo(info.params.at(i));
+                    QVariant arg = argumentConvert(arrayParameters.at(i),
+                                                   parInfo);
+                    if (!arg.isValid())
+                    {
+                        QString message;
+                        if (arrayParameters.at(i).isUndefined())
+                            message = QString("failed to construct default '%1' object").arg(parInfo.name);
+                        else
+                            message = QString("failed to convert '%1' object from JSon").arg(parInfo.name);
+                        QJsonRpcMessage error =request.createErrorResponse(
+                                    QJsonRpc::InvalidParams, message);
+                        Q_EMIT result(error);
+                        return false;
+                    }
+                    arguments.push_back(arg);
+                }
                 break;
             }
         }
@@ -254,7 +365,6 @@ bool QJsonRpcService::dispatch(const QJsonRpcMessage &request)
 
     QJsonRpcServicePrivate::MethodInfo &info = d->methods[idx];
     QVarLengthArray<void *, 10> parameters;
-    parameters.reserve(info.params.size());
 
     // first argument to metacall is the return value
     QMetaType::Type returnType = static_cast<QMetaType::Type>(info.retType);
@@ -266,36 +376,12 @@ bool QJsonRpcService::dispatch(const QJsonRpcMessage &request)
     else
         parameters.append(returnValue.data());
 
-    // compile arguments
-    for (int i = 0; i < info.params.size(); ++i) {
-        int parameterType = info.params.at(i).type;
-        QVariant &argument = arguments[i];
-        if (!argument.isValid()) {
-            // pass in a default constructed parameter in this case
-            argument = QVariant(parameterType, NULL);
-            if (!argument.isValid())
-            {
-                QString message = QString("failed to construct default '%1' object").arg(info.params.at(i).name);
-                QJsonRpcMessage error = request.createErrorResponse(QJsonRpc::InvalidParams, message);
-                Q_EMIT result(error);
-                return false;
-            }
-
-            parameters.append(const_cast<void *>(argument.constData()));
-        } else {
-            if (argument.userType() != parameterType && parameterType != QMetaType::QVariant)
-            {
-                if (!argument.canConvert(static_cast<QVariant::Type>(parameterType)) ||
-                    !argument.convert(static_cast<QVariant::Type>(parameterType)))
-                {
-                    QString message = QString("failed to convert '%1' object from JSon").arg(info.params.at(i).name);
-                    QJsonRpcMessage error =request.createErrorResponse(QJsonRpc::InvalidParams, message);
-                    Q_EMIT result(error);
-                    return false;
-                }
-            }
-            parameters.append(const_cast<void *>(argument.constData()));
-        }
+    for (int i = 0; i < info.params.size(); ++i)
+    {
+        if (info.params.at(i).type == QMetaType::QVariant)
+            parameters.append(static_cast<void *>(&arguments[i]));
+        else
+            parameters.append(const_cast<void *>(arguments.at(i).constData()));
     }
 
     bool success =
@@ -311,10 +397,10 @@ bool QJsonRpcService::dispatch(const QJsonRpcMessage &request)
     {
         QJsonArray ret;
         if (info.retType != QMetaType::Void)
-            ret.append(QJsonValue::fromVariant(returnValue));
+            ret.append(retConvert(returnValue));
         for (int i = 0; i < info.params.size(); ++i)
             if (info.params.at(i).out)
-                ret.append(QJsonValue::fromVariant(arguments.at(i)));
+                ret.append(retConvert(arguments[i]));
         if (ret.size() > 1)
             Q_EMIT result(request.createResponse(ret));
         else
@@ -323,7 +409,7 @@ bool QJsonRpcService::dispatch(const QJsonRpcMessage &request)
     }
     else
     {
-        Q_EMIT result(request.createResponse(QJsonValue::fromVariant(returnValue)));
+        Q_EMIT result(request.createResponse(retConvert(returnValue)));
         return true;
     }
 }

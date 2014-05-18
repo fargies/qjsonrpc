@@ -24,6 +24,11 @@
 **
 */
 
+/*
+ * CustomTypes are only supported in Qt >= 5.2
+ * adding/removing QMetaType converters is required to use this
+ */
+
 #include <QtCore/QVariant>
 #include <QtTest/QtTest>
 
@@ -74,7 +79,11 @@ public:
 
     static CustomClass fromJson(const QJsonValue &value)
     {
+#if QT_VERSION >= 0x050200
         return CustomClass(value.toInt());
+#else
+        return CustomClass((int) value.toDouble());
+#endif
     }
 
     int data;
@@ -151,8 +160,10 @@ protected Q_SLOTS:
  */
 void TestQJsonRpcCustomTypes::testCustomParams()
 {
+#if QT_VERSION >= 0x050200
     QMetaType::registerConverter(&CustomClass::toJson);
     QMetaType::registerConverter<QJsonValue, CustomClass>(&CustomClass::fromJson);
+#endif
 
     TestServiceProvider provider;
     TestService service;
@@ -176,14 +187,17 @@ void TestQJsonRpcCustomTypes::testCustomRet()
 
     QJsonRpcMessage request =
         QJsonRpcMessage::createRequest("service.testCustomRet",
-                                       QJsonValue::fromVariant(QVariant::fromValue(CustomClass())));
+                                       CustomClass().toJson());
     QVERIFY(service.testDispatch(request));
 
     QCOMPARE(provider.last.type(), QJsonRpcMessage::Response);
+#if QT_VERSION >= 0x050100
     QVariant result = provider.last.result();
+#else
+    QVariant result = provider.last.result().toVariant(); /* won't work but at least will compile */
+#endif
 
-    QCOMPARE(QString(QVariant::typeToName(result.type())),
-            QString("CustomClass"));
+    QVERIFY(result.canConvert<CustomClass>());
     QCOMPARE(result.value<CustomClass>().data, 1);
 }
 
