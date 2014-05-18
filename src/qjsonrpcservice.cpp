@@ -294,6 +294,9 @@ bool QJsonRpcService::dispatch(const QJsonRpcMessage &request)
     QVariantList arguments;
     const QList<int> &indexes = d->invokableMethodHash.value(method);
     const QJsonValue &params = request.params();
+    QVarLengthArray<void *, 10> parameters;
+    QVariant returnValue;
+    QMetaType::Type returnType = QMetaType::Void;
 
     if (params.isObject()) {
         QJsonObject namedParametersObject = params.toObject();
@@ -302,6 +305,14 @@ bool QJsonRpcService::dispatch(const QJsonRpcMessage &request)
             if (jsParamCompare(namedParametersObject, info)) {
                 idx = methodIndex;
                 arguments.reserve(info.params.size());
+                returnType = static_cast<QMetaType::Type>(info.retType);
+                returnValue = returnType == QMetaType::Void ?
+                                         QVariant() : QVariant(returnType, NULL);
+                if (returnType == QMetaType::QVariant)
+                    parameters.append(&returnValue);
+                else
+                    parameters.append(returnValue.data());
+
                 for (int i = 0; i < info.params.size(); ++i)
                 {
                     const QJsonRpcServicePrivate::ParamInfo &parInfo(info.params.at(i));
@@ -320,6 +331,10 @@ bool QJsonRpcService::dispatch(const QJsonRpcMessage &request)
                         return false;
                     }
                     arguments.push_back(arg);
+                    if (parInfo.type == QMetaType::QVariant)
+                        parameters.append(static_cast<void *>(&arguments.last()));
+                    else
+                        parameters.append(const_cast<void *>(arguments.last().constData()));
                 }
                 break;
             }
@@ -332,6 +347,13 @@ bool QJsonRpcService::dispatch(const QJsonRpcMessage &request)
             if (jsParamCompare(arrayParameters, info)) {
                 idx = methodIndex;
                 arguments.reserve(info.params.size());
+                returnType = static_cast<QMetaType::Type>(info.retType);
+                returnValue = returnType == QMetaType::Void ?
+                                         QVariant() : QVariant(returnType, NULL);
+                if (returnType == QMetaType::QVariant)
+                    parameters.append(&returnValue);
+                else
+                    parameters.append(returnValue.data());
                 for (int i = 0; i < info.params.size(); ++i)
                 {
                     const QJsonRpcServicePrivate::ParamInfo &parInfo(info.params.at(i));
@@ -350,6 +372,10 @@ bool QJsonRpcService::dispatch(const QJsonRpcMessage &request)
                         return false;
                     }
                     arguments.push_back(arg);
+                    if (parInfo.type == QMetaType::QVariant)
+                        parameters.append(static_cast<void *>(&arguments.last()));
+                    else
+                        parameters.append(const_cast<void *>(arguments.last().constData()));
                 }
                 break;
             }
@@ -364,25 +390,10 @@ bool QJsonRpcService::dispatch(const QJsonRpcMessage &request)
     }
 
     QJsonRpcServicePrivate::MethodInfo &info = d->methods[idx];
-    QVarLengthArray<void *, 10> parameters;
 
     // first argument to metacall is the return value
-    QMetaType::Type returnType = static_cast<QMetaType::Type>(info.retType);
-    QVariant returnValue(returnType == QMetaType::Void ?
-                             QVariant() : QVariant(returnType, NULL));
 
-    if (returnType == QMetaType::QVariant)
-        parameters.append(&returnValue);
-    else
-        parameters.append(returnValue.data());
 
-    for (int i = 0; i < info.params.size(); ++i)
-    {
-        if (info.params.at(i).type == QMetaType::QVariant)
-            parameters.append(static_cast<void *>(&arguments[i]));
-        else
-            parameters.append(const_cast<void *>(arguments.at(i).constData()));
-    }
 
     bool success =
         const_cast<QJsonRpcService*>(this)->qt_metacall(QMetaObject::InvokeMetaMethod, idx, parameters.data()) < 0;
