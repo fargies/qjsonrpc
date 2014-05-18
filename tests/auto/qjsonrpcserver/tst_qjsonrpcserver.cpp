@@ -831,7 +831,8 @@ void TestQJsonRpcServer::userDeletedReplyOnDelayedResponse()
 
 void TestQJsonRpcServer::addRemoveService()
 {
-    QVERIFY(m_server->addService(new TestService));
+    TestService srv;
+    QVERIFY(m_server->addService(&srv));
 
     QSignalSpy spyMessageReceived(m_clientSocket.data(), SIGNAL(messageReceived(QJsonRpcMessage)));
     QJsonRpcMessage request = QJsonRpcMessage::createRequest("service.noParam");
@@ -840,7 +841,7 @@ void TestQJsonRpcServer::addRemoveService()
     QCOMPARE(request.id(), response.id());
     QCOMPARE(spyMessageReceived.count(), 1);
 
-    QVERIFY(m_server->removeService(new TestService));
+    QVERIFY(m_server->removeService(&srv));
     response = m_clientSocket->sendMessageBlocking(request);
     QVERIFY(response.errorCode() == QJsonRpc::MethodNotFound);
 }
