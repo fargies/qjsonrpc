@@ -164,6 +164,12 @@ static bool jsParamCompare(const QJsonObject &params, const QJsonRpcServicePriva
     return true;
 }
 
+static inline QByteArray methodName(const QJsonRpcMessage &request)
+{
+    const QString &methodPath(request.method());
+    return methodPath.midRef(methodPath.lastIndexOf('.') + 1).toLatin1();
+}
+
 //QJsonRpcMessage QJsonRpcService::dispatch(const QJsonRpcMessage &request) const
 bool QJsonRpcService::dispatch(const QJsonRpcMessage &request)
 {
@@ -176,7 +182,7 @@ bool QJsonRpcService::dispatch(const QJsonRpcMessage &request)
         return false;
     }
 
-    QByteArray method = request.method().section(".", -1).toLatin1();
+    const QByteArray &method(methodName(request));
     if (!d->invokableMethodHash.contains(method)) {
         QJsonRpcMessage error =
             request.createErrorResponse(QJsonRpc::MethodNotFound, "invalid method called");
@@ -187,9 +193,10 @@ bool QJsonRpcService::dispatch(const QJsonRpcMessage &request)
     int idx = -1;
     QVariantList arguments;
     const QList<int> &indexes = d->invokableMethodHash.value(method);
+    const QJsonValue &params = request.params();
 
-    if (request.params().isObject()) {
-        QJsonObject namedParametersObject = request.params().toObject();
+    if (params.isObject()) {
+        QJsonObject namedParametersObject = params.toObject();
         foreach (int methodIndex, indexes) {
             QJsonRpcServicePrivate::MethodInfo &info = d->methods[methodIndex];
             if (jsParamCompare(namedParametersObject, info)) {
@@ -204,7 +211,7 @@ bool QJsonRpcService::dispatch(const QJsonRpcMessage &request)
         }
     }
     else {
-        QJsonArray arrayParameters = request.params().toArray();
+        QJsonArray arrayParameters = params.toArray();
         foreach (int methodIndex, indexes) {
             QJsonRpcServicePrivate::MethodInfo &info = d->methods[methodIndex];
             if (jsParamCompare(arrayParameters, info)) {
@@ -226,11 +233,10 @@ bool QJsonRpcService::dispatch(const QJsonRpcMessage &request)
     QVarLengthArray<void *, 10> parameters;
     parameters.reserve(info.params.size());
 
-    ObjectCreator objectCreator;
     // first argument to metacall is the return value
     QMetaType::Type returnType = static_cast<QMetaType::Type>(info.retType);
     QVariant returnValue(returnType == QMetaType::Void ?
-                             QVariant() : QVariant(returnType, objectCreator.create(returnType)));
+                             QVariant() : QVariant(returnType, NULL));
 
     if (returnType == QMetaType::QVariant)
         parameters.append(&returnValue);
@@ -243,7 +249,7 @@ bool QJsonRpcService::dispatch(const QJsonRpcMessage &request)
         const QVariant &argument = arguments.at(i);
         if (!argument.isValid()) {
             // pass in a default constructed parameter in this case
-            arguments[i] = QVariant(parameterType, objectCreator.create(parameterType));
+            arguments[i] = QVariant(parameterType, NULL);
             parameters.append(const_cast<void *>(arguments.at(i).constData()));
         } else {
             if (argument.userType() != parameterType &&
@@ -282,24 +288,4 @@ bool QJsonRpcService::dispatch(const QJsonRpcMessage &request)
         Q_EMIT result(request.createResponse(QJsonValue::fromVariant(returnValue)));
         return true;
     }
-}
-
-void *ObjectCreator::create(int type)
-{
-#if QT_VERSION >= 0x050000
-    void *value = QMetaType::create(type);
-#else
-    void *value = QMetaType::construct(type);
-#endif
-
-    m_objects.append(qMakePair(value, type));
-    return value;
-}
-
-ObjectCreator::~ObjectCreator()
-{
-    QVarLengthArray<QPair<void*, int>, prealloc>::const_iterator it;
-    for (it = m_objects.constBegin(); it != m_objects.constEnd(); ++it)
-        QMetaType::destroy(it->second, it->first);
-    m_objects.clear();
 }
