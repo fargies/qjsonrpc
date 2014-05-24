@@ -5,7 +5,7 @@
 #include <QTcpServer>
 #include <QHash>
 
-#include "qjsonrpcservice.h"
+#include "qjsonrpcabstractserver.h"
 #include "qjsonrpc_export.h"
 
 class QJsonRpcHttpRequest;

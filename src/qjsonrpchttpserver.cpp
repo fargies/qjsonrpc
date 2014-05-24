@@ -2,7 +2,13 @@
 #include <QTcpSocket>
 #include <QDateTime>
 
-#include "qjsondocument.h"
+#if QT_VERSION >= 0x050000
+#include <QJsonDocument>
+#else
+#include "json/qjsondocument.h"
+#endif
+
+#include "qjsonrpcsocket.h"
 #include "qjsonrpcmessage.h"
 #include "qjsonrpchttpserver_p.h"
 #include "qjsonrpchttpserver.h"
@@ -31,6 +37,7 @@ QJsonRpcHttpRequest::QJsonRpcHttpRequest(QAbstractSocket *socket, QObject *paren
 
 QJsonRpcHttpRequest::~QJsonRpcHttpRequest()
 {
+    free(m_requestParser);
 }
 
 bool QJsonRpcHttpRequest::isSequential() const
@@ -173,14 +180,14 @@ int QJsonRpcHttpRequest::onHeaderField(http_parser *parser, const char *at, size
         request->m_currentHeaderValue.clear();
     }
 
-    request->m_currentHeaderField.append(QString::fromAscii(at, length));
+    request->m_currentHeaderField.append(QString::fromLatin1(at, length));
     return 0;
 }
 
 int QJsonRpcHttpRequest::onHeaderValue(http_parser *parser, const char *at, size_t length)
 {
     QJsonRpcHttpRequest *request = (QJsonRpcHttpRequest *)parser->data;
-    request->m_currentHeaderValue.append(QString::fromAscii(at, length));
+    request->m_currentHeaderValue.append(QString::fromLatin1(at, length));
     return 0;
 }
 
@@ -198,7 +205,7 @@ int QJsonRpcHttpRequest::onUrl(http_parser *parser, const char *at, size_t lengt
     Q_UNUSED(parser)
     Q_UNUSED(at)
     Q_UNUSED(length)
-    QString url = QString::fromAscii(at, length);
+    QString url = QString::fromLatin1(at, length);
     qDebug() << "requested url: " << url;
 
     return 0;
@@ -225,6 +232,7 @@ void QJsonRpcHttpServer::setSslConfiguration(const QSslConfiguration &config)
 
 void QJsonRpcHttpServer::incomingConnection(int socketDescriptor)
 {
+    qDebug() << "INCOMING CONNECTION";
     QJsonRpcHttpRequest *request;
     if (m_sslConfiguration.isNull()) {
         QTcpSocket *socket = new QTcpSocket;
